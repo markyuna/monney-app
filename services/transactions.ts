@@ -1,3 +1,5 @@
+// services/transactions.ts
+
 import {
     appwriteConfig,
     databases,
@@ -20,6 +22,16 @@ import {
     transaction_date: string;
   };
   
+  type CreateTransactionParams = {
+    userId: string;
+    title: string;
+    type: TransactionType;
+    amount: number;
+    category?: string;
+    note?: string;
+    transactionDate?: string;
+  };
+  
   export async function createTransaction({
     userId,
     title,
@@ -27,14 +39,8 @@ import {
     amount,
     category = "",
     note = "",
-  }: {
-    userId: string;
-    title: string;
-    type: TransactionType;
-    amount: number;
-    category?: string;
-    note?: string;
-  }) {
+    transactionDate = new Date().toISOString(),
+  }: CreateTransactionParams) {
     return databases.createDocument(
       appwriteConfig.databaseId,
       appwriteConfig.transactionsCollectionId,
@@ -46,7 +52,7 @@ import {
         amount,
         category,
         note,
-        transaction_date: new Date().toISOString(),
+        transaction_date: transactionDate,
       },
       [
         Permission.read(Role.user(userId)),
@@ -67,4 +73,12 @@ import {
     );
   
     return response.documents as unknown as Transaction[];
+  }
+
+  export async function deleteTransaction(transactionId: string) {
+    return databases.deleteDocument(
+      appwriteConfig.databaseId,
+      appwriteConfig.transactionsCollectionId,
+      transactionId
+    );
   }

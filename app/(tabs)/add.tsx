@@ -1,5 +1,3 @@
-// app/add-transaction.tsx
-
 import { useState } from "react";
 import {
   Alert,
@@ -14,41 +12,31 @@ import {
 import { router, useLocalSearchParams } from "expo-router";
 
 import { getCurrentUser } from "@/services/auth";
-import { createTransaction, type TransactionType } from "@/services/transactions";
+import { createTransaction } from "@/services/transactions";
 
 export default function AddTransactionScreen() {
-  const { type } = useLocalSearchParams<{ type?: TransactionType }>();
+  const { type } = useLocalSearchParams<{ type: "income" | "expense" }>();
 
   const today = new Date().toISOString().split("T")[0];
 
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState("");
   const [transactionDate, setTransactionDate] = useState(today);
-  const [loading, setLoading] = useState(false);
 
   async function handleSubmit() {
-    if (!title.trim() || !amount.trim() || !transactionDate.trim()) {
+    if (!title || !amount || !transactionDate) {
       Alert.alert("Erreur", "Complète tous les champs obligatoires");
       return;
     }
 
-    const parsedAmount = Number(amount.replace(",", "."));
+    const parsedAmount = Number(amount);
 
     if (Number.isNaN(parsedAmount) || parsedAmount <= 0) {
       Alert.alert("Erreur", "Le montant doit être valide");
       return;
     }
 
-    const selectedDate = new Date(transactionDate);
-
-    if (Number.isNaN(selectedDate.getTime())) {
-      Alert.alert("Erreur", "La date doit être au format YYYY-MM-DD");
-      return;
-    }
-
     try {
-      setLoading(true);
-
       const user = await getCurrentUser();
 
       if (!user) {
@@ -58,10 +46,10 @@ export default function AddTransactionScreen() {
 
       await createTransaction({
         userId: user.$id,
-        title: title.trim(),
+        title,
         type: type || "expense",
         amount: parsedAmount,
-        transactionDate: selectedDate.toISOString(),
+        transactionDate: new Date(transactionDate).toISOString(),
       });
 
       Alert.alert("Succès", "Transaction ajoutée");
@@ -69,8 +57,6 @@ export default function AddTransactionScreen() {
     } catch (error) {
       console.log(error);
       Alert.alert("Erreur", "Impossible d'ajouter la transaction");
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -111,14 +97,8 @@ export default function AddTransactionScreen() {
           onChangeText={setTransactionDate}
         />
 
-        <Pressable
-          style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handleSubmit}
-          disabled={loading}
-        >
-          <Text style={styles.buttonText}>
-            {loading ? "Enregistrement..." : "Valider"}
-          </Text>
+        <Pressable style={styles.button} onPress={handleSubmit}>
+          <Text style={styles.buttonText}>Valider</Text>
         </Pressable>
       </View>
     </KeyboardAvoidingView>
@@ -165,9 +145,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginTop: 10,
-  },
-  buttonDisabled: {
-    opacity: 0.65,
   },
   buttonText: {
     color: "#fff",

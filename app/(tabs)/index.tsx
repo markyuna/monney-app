@@ -45,6 +45,13 @@ function getDateKey(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function getMonthLabel(date: Date) {
+  return date.toLocaleDateString("fr-FR", {
+    month: "long",
+    year: "numeric",
+  });
+}
+
 export default function HomeScreen() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,6 +81,13 @@ export default function HomeScreen() {
       maximumFractionDigits: 0,
     }).format(value);
 
+  const selectedDate = useMemo(
+    () => new Date(`${selectedDateKey}T12:00:00.000Z`),
+    [selectedDateKey]
+  );
+
+  const monthLabel = useMemo(() => getMonthLabel(visibleMonth), [visibleMonth]);
+
   const changeMonth = (direction: number) => {
     setVisibleMonth((current) => {
       const nextMonth = new Date(
@@ -85,6 +99,12 @@ export default function HomeScreen() {
       setSelectedDateKey(getDateKey(nextMonth));
       return nextMonth;
     });
+  };
+
+  const goToToday = () => {
+    const today = new Date();
+    setVisibleMonth(new Date(today.getFullYear(), today.getMonth(), 1));
+    setSelectedDateKey(getDateKey(today));
   };
 
   const visibleMonthTransactions = useMemo(() => {
@@ -113,12 +133,7 @@ export default function HomeScreen() {
     const balance = income - expense;
     const savingsRate = income > 0 ? Math.round((balance / income) * 100) : 0;
 
-    return {
-      income,
-      expense,
-      balance,
-      savingsRate,
-    };
+    return { income, expense, balance, savingsRate };
   }, [visibleMonthTransactions]);
 
   const calendarDays = useMemo<DailySummary[]>(() => {
@@ -338,12 +353,7 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          <Text style={styles.monthResume}>
-            {visibleMonth.toLocaleDateString("fr-FR", {
-              month: "long",
-              year: "numeric",
-            })}
-          </Text>
+          <Text style={styles.monthResume}>{monthLabel}</Text>
 
           <View style={styles.balanceCard}>
             <Text style={styles.balanceLabel}>Solde disponible ce mois</Text>
@@ -405,7 +415,7 @@ export default function HomeScreen() {
 
         <View style={styles.calendarCard}>
           <View style={styles.calendarHeader}>
-            <View>
+            <View style={styles.calendarTitleBlock}>
               <Text style={styles.sectionTitle}>Calendrier</Text>
               <Text style={styles.sectionSubtitle}>
                 Sélectionne un jour pour voir les mouvements.
@@ -415,6 +425,7 @@ export default function HomeScreen() {
             <View style={styles.monthControls}>
               <TouchableOpacity
                 style={styles.monthButton}
+                activeOpacity={0.82}
                 onPress={() => changeMonth(-1)}
               >
                 <Text style={styles.monthButtonText}>‹</Text>
@@ -422,6 +433,7 @@ export default function HomeScreen() {
 
               <TouchableOpacity
                 style={styles.monthButton}
+                activeOpacity={0.82}
                 onPress={() => changeMonth(1)}
               >
                 <Text style={styles.monthButtonText}>›</Text>
@@ -429,12 +441,23 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          <Text style={styles.calendarMonth}>
-            {visibleMonth.toLocaleDateString("fr-FR", {
-              month: "long",
-              year: "numeric",
-            })}
-          </Text>
+          <View style={styles.monthPillRow}>
+            <View>
+              <Text style={styles.calendarMonth}>{monthLabel}</Text>
+              <Text style={styles.calendarMonthHint}>
+                {visibleMonthTransactions.length} mouvement
+                {visibleMonthTransactions.length > 1 ? "s" : ""} ce mois-ci
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={styles.todayButton}
+              activeOpacity={0.82}
+              onPress={goToToday}
+            >
+              <Text style={styles.todayButtonText}>Aujourd’hui</Text>
+            </TouchableOpacity>
+          </View>
 
           <ScrollView
             horizontal
@@ -444,6 +467,7 @@ export default function HomeScreen() {
             {calendarDays.map((day) => {
               const isSelected = day.dateKey === selectedDateKey;
               const hasMovement = day.income > 0 || day.expense > 0;
+              const isToday = day.dateKey === getDateKey(new Date());
 
               return (
                 <TouchableOpacity
@@ -453,6 +477,7 @@ export default function HomeScreen() {
                   style={[
                     styles.dayCard,
                     isSelected && styles.dayCardSelected,
+                    isToday && !isSelected && styles.dayCardToday,
                   ]}
                 >
                   <Text
@@ -472,6 +497,17 @@ export default function HomeScreen() {
                   >
                     {day.day}
                   </Text>
+
+                  {isToday && (
+                    <Text
+                      style={[
+                        styles.todayMiniLabel,
+                        isSelected && styles.todayMiniLabelSelected,
+                      ]}
+                    >
+                      Today
+                    </Text>
+                  )}
 
                   {hasMovement ? (
                     <>
@@ -525,14 +561,11 @@ export default function HomeScreen() {
           <View>
             <Text style={styles.sectionTitle}>Transactions</Text>
             <Text style={styles.selectedDateText}>
-              {new Date(`${selectedDateKey}T12:00:00.000Z`).toLocaleDateString(
-                "fr-FR",
-                {
-                  day: "numeric",
-                  month: "long",
-                  year: "numeric",
-                }
-              )}
+              {selectedDate.toLocaleDateString("fr-FR", {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })}
             </Text>
           </View>
 
@@ -623,14 +656,11 @@ export default function HomeScreen() {
                 <Text style={styles.modalTitle}>Ajouter une transaction</Text>
                 <Text style={styles.modalSubtitle}>
                   Pour le{" "}
-                  {new Date(`${selectedDateKey}T12:00:00.000Z`).toLocaleDateString(
-                    "fr-FR",
-                    {
-                      day: "numeric",
-                      month: "long",
-                      year: "numeric",
-                    }
-                  )}
+                  {selectedDate.toLocaleDateString("fr-FR", {
+                    day: "numeric",
+                    month: "long",
+                    year: "numeric",
+                  })}
                 </Text>
 
                 <TouchableOpacity
@@ -666,10 +696,7 @@ export default function HomeScreen() {
                 </Text>
 
                 <Text style={styles.modalSubtitle}>
-                  Date sélectionnée :{" "}
-                  {new Date(`${selectedDateKey}T12:00:00.000Z`).toLocaleDateString(
-                    "fr-FR"
-                  )}
+                  Date sélectionnée : {selectedDate.toLocaleDateString("fr-FR")}
                 </Text>
 
                 <TextInput
@@ -716,8 +743,18 @@ export default function HomeScreen() {
   );
 }
 
+const premiumShadow = Platform.select({
+  ios: {
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  android: { elevation: 4 },
+});
+
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#F8FAFC" },
+  screen: { flex: 1, backgroundColor: "#F4F7FB" },
   loader: { flex: 1, alignItems: "center", justifyContent: "center" },
   loaderText: {
     color: "#CBD5E1",
@@ -849,17 +886,11 @@ const styles = StyleSheet.create({
   insightCard: {
     flex: 1,
     backgroundColor: "#FFFFFF",
-    borderRadius: 24,
+    borderRadius: 26,
     padding: 16,
-    ...Platform.select({
-      ios: {
-        shadowColor: "#0F172A",
-        shadowOpacity: 0.08,
-        shadowRadius: 18,
-        shadowOffset: { width: 0, height: 8 },
-      },
-      android: { elevation: 3 },
-    }),
+    borderWidth: 1,
+    borderColor: "#EEF2F7",
+    ...premiumShadow,
   },
   insightLabel: {
     color: "#64748B",
@@ -889,17 +920,11 @@ const styles = StyleSheet.create({
     margin: 20,
     marginBottom: 0,
     backgroundColor: "#FFFFFF",
-    borderRadius: 30,
-    padding: 18,
-    ...Platform.select({
-      ios: {
-        shadowColor: "#0F172A",
-        shadowOpacity: 0.08,
-        shadowRadius: 18,
-        shadowOffset: { width: 0, height: 8 },
-      },
-      android: { elevation: 4 },
-    }),
+    borderRadius: 34,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: "#EEF2F7",
+    ...premiumShadow,
   },
   calendarHeader: {
     flexDirection: "row",
@@ -907,46 +932,74 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 14,
   },
+  calendarTitleBlock: {
+    flex: 1,
+  },
   cardHeader: {
     marginBottom: 14,
   },
-  sectionTitle: { fontSize: 20, fontWeight: "900", color: "#0F172A" },
+  sectionTitle: { fontSize: 24, fontWeight: "900", color: "#0F172A" },
   sectionSubtitle: {
     color: "#64748B",
     marginTop: 4,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 14,
+    lineHeight: 20,
   },
   monthControls: {
     flexDirection: "row",
     gap: 8,
   },
   monthButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "#F1F5F9",
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
   },
   monthButtonText: {
-    color: "#111827",
-    fontSize: 28,
+    color: "#0F172A",
+    fontSize: 34,
     fontWeight: "900",
-    marginTop: -4,
+    marginTop: -5,
+  },
+  monthPillRow: {
+    marginTop: 22,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 14,
   },
   calendarMonth: {
     color: "#111827",
-    fontSize: 15,
+    fontSize: 22,
     fontWeight: "900",
     textTransform: "capitalize",
-    marginTop: 16,
   },
-  calendarScroll: { gap: 10, paddingTop: 16, paddingRight: 4 },
+  calendarMonthHint: {
+    color: "#94A3B8",
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  todayButton: {
+    backgroundColor: "#111827",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+  },
+  todayButtonText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  calendarScroll: { gap: 12, paddingTop: 18, paddingRight: 4 },
   dayCard: {
-    width: 82,
-    minHeight: 108,
-    borderRadius: 24,
+    width: 90,
+    minHeight: 124,
+    borderRadius: 28,
     backgroundColor: "#F8FAFC",
     borderWidth: 1,
     borderColor: "#E2E8F0",
@@ -959,21 +1012,35 @@ const styles = StyleSheet.create({
     backgroundColor: "#0F172A",
     borderColor: "#0F172A",
   },
+  dayCardToday: {
+    borderColor: "#F59E0B",
+    backgroundColor: "#FFFBEB",
+  },
   dayLabel: {
     color: "#94A3B8",
     fontSize: 10,
     fontWeight: "900",
     textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
   },
   dayLabelSelected: { color: "#CBD5E1" },
   dayNumber: {
     color: "#111827",
-    fontSize: 22,
+    fontSize: 28,
     fontWeight: "900",
     marginTop: 3,
   },
   dayNumberSelected: { color: "#FFFFFF" },
+  todayMiniLabel: {
+    marginTop: 2,
+    color: "#D97706",
+    fontSize: 9,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  todayMiniLabelSelected: {
+    color: "#FDE68A",
+  },
   dayDots: { flexDirection: "row", gap: 5, marginTop: 9 },
   incomeDot: {
     width: 7,
@@ -1000,15 +1067,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderRadius: 30,
     padding: 18,
-    ...Platform.select({
-      ios: {
-        shadowColor: "#0F172A",
-        shadowOpacity: 0.08,
-        shadowRadius: 18,
-        shadowOffset: { width: 0, height: 8 },
-      },
-      android: { elevation: 4 },
-    }),
+    borderWidth: 1,
+    borderColor: "#EEF2F7",
+    ...premiumShadow,
   },
 
   transactionsHeader: {
@@ -1039,6 +1100,8 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     padding: 24,
     alignItems: "flex-start",
+    borderWidth: 1,
+    borderColor: "#EEF2F7",
   },
   emptyEmoji: {
     fontSize: 28,
@@ -1054,6 +1117,8 @@ const styles = StyleSheet.create({
     padding: 15,
     flexDirection: "row",
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#EEF2F7",
     ...Platform.select({
       ios: {
         shadowColor: "#0F172A",

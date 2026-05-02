@@ -69,12 +69,13 @@ import {
       [
         Query.equal("user_id", userId),
         Query.orderDesc("transaction_date"),
+        Query.limit(500),
       ]
     );
   
     return response.documents as unknown as Transaction[];
   }
-
+  
   export async function deleteTransaction(transactionId: string) {
     return databases.deleteDocument(
       appwriteConfig.databaseId,

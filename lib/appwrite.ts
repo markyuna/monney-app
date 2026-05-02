@@ -1,9 +1,19 @@
 import "react-native-url-polyfill/auto";
-import { Account, Client, ID } from "react-native-appwrite";
+import {
+  Account,
+  Client,
+  Databases,
+  ID,
+  Query,
+  Permission,
+  Role,
+} from "react-native-appwrite";
 
 export const appwriteConfig = {
   endpoint: "https://fra.cloud.appwrite.io/v1",
   projectId: "69f581530001e1205ba1",
+  databaseId: "monneyapp",
+  transactionsCollectionId: "collection",
 };
 
 const client = new Client()
@@ -11,4 +21,6 @@ const client = new Client()
   .setProject(appwriteConfig.projectId);
 
 export const account = new Account(client);
-export { ID };
+export const databases = new Databases(client);
+
+export { ID, Query, Permission, Role };

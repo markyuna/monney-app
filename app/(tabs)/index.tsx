@@ -1,17 +1,102 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { LinearGradient } from "expo-linear-gradient";
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { router, useFocusEffect } from "expo-router";
+import {
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
-const transactions = [
-  { title: "Salaire", type: "Revenu", amount: "+2200 €", positive: true },
-  { title: "Loyer", type: "Dépense", amount: "-850 €", positive: false },
-  { title: "Courses", type: "Dépense", amount: "-240 €", positive: false },
-  { title: "Freelance", type: "Revenu", amount: "+350 €", positive: true },
-];
+import { getCurrentUser } from "@/services/auth";
+import { getUserTransactions, type Transaction } from "@/services/transactions";
+import SpendingChart from "@/components/SpendingChart";
 
 export default function HomeScreen() {
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const formatMoney = (value: number) =>
+    new Intl.NumberFormat("fr-FR", {
+      style: "currency",
+      currency: "EUR",
+      maximumFractionDigits: 0,
+    }).format(value);
+
+  const totals = useMemo(() => {
+    const income = transactions
+      .filter((item) => item.type === "income")
+      .reduce((sum, item) => sum + Number(item.amount), 0);
+
+    const expense = transactions
+      .filter((item) => item.type === "expense")
+      .reduce((sum, item) => sum + Number(item.amount), 0);
+
+    const balance = income - expense;
+    const savingsRate = income > 0 ? Math.max(0, Math.round((balance / income) * 100)) : 0;
+
+    return { income, expense, balance, savingsRate };
+  }, [transactions]);
+
+  const loadTransactions = useCallback(async () => {
+    try {
+      const user = await getCurrentUser();
+
+      if (!user) {
+        router.replace("/login");
+        return;
+      }
+
+      const data = await getUserTransactions(user.$id);
+      setTransactions(data);
+    } catch (error) {
+      console.log(error);
+      Alert.alert("Erreur", "Impossible de charger les transactions.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadTransactions();
+  }, [loadTransactions]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadTransactions();
+    }, [loadTransactions])
+  );
+
+  if (loading) {
+    return (
+      <LinearGradient colors={["#08111F", "#0F172A", "#111827"]} style={styles.loadingScreen}>
+        <ActivityIndicator size="large" color="#22C55E" />
+      </LinearGradient>
+    );
+  }
+
   return (
     <LinearGradient colors={["#08111F", "#0F172A", "#111827"]} style={styles.screen}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.container}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.container}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            tintColor="#22C55E"
+            onRefresh={() => {
+              setRefreshing(true);
+              loadTransactions();
+            }}
+          />
+        }
+      >
         <View style={styles.header}>
           <View>
             <Text style={styles.appName}>MonneyApp</Text>
@@ -26,42 +111,52 @@ export default function HomeScreen() {
 
         <LinearGradient colors={["#22C55E", "#14B8A6", "#0EA5E9"]} style={styles.balanceCard}>
           <Text style={styles.balanceLabel}>Balance disponible</Text>
-          <Text style={styles.balance}>1 460 €</Text>
+          <Text style={styles.balance}>{formatMoney(totals.balance)}</Text>
           <Text style={styles.balanceText}>
-            Tu peux économiser environ 57% de tes revenus ce mois-ci.
+            Tu peux économiser environ {totals.savingsRate}% de tes revenus ce mois-ci.
           </Text>
         </LinearGradient>
 
         <View style={styles.statsGrid}>
           <View style={styles.statCard}>
             <Text style={styles.statLabel}>Revenus</Text>
-            <Text style={styles.statValue}>2 550 €</Text>
+            <Text style={styles.statValue}>{formatMoney(totals.income)}</Text>
           </View>
 
           <View style={styles.statCard}>
             <Text style={styles.statLabel}>Dépenses</Text>
-            <Text style={styles.statValue}>1 090 €</Text>
+            <Text style={styles.statValue}>{formatMoney(totals.expense)}</Text>
           </View>
 
           <View style={styles.statCard}>
             <Text style={styles.statLabel}>Épargne</Text>
-            <Text style={styles.statValue}>57%</Text>
+            <Text style={styles.statValue}>{totals.savingsRate}%</Text>
           </View>
         </View>
 
         <Text style={styles.sectionTitle}>Actions rapides</Text>
 
         <View style={styles.actions}>
-          <TouchableOpacity activeOpacity={0.85} style={styles.actionButton}>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            style={styles.actionButton}
+            onPress={() => router.push("/add-transaction?type=income")}
+          >
             <Text style={styles.actionIcon}>＋</Text>
             <Text style={styles.actionText}>Revenu</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity activeOpacity={0.85} style={styles.actionButtonDark}>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            style={styles.actionButtonDark}
+            onPress={() => router.push("/add-transaction?type=expense")}
+          >
             <Text style={styles.actionIcon}>−</Text>
             <Text style={styles.actionText}>Dépense</Text>
           </TouchableOpacity>
         </View>
+        
+        <SpendingChart transactions={transactions} />
 
         <View style={styles.transactionsHeader}>
           <Text style={styles.sectionTitle}>Dernières transactions</Text>
@@ -69,32 +164,48 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.transactionsCard}>
-          {transactions.map((item, index) => (
-            <View
-              key={item.title}
-              style={[
-                styles.transactionRow,
-                index !== transactions.length - 1 && styles.transactionBorder,
-              ]}
-            >
-              <View style={styles.transactionLeft}>
-                <View style={[styles.transactionIcon, item.positive && styles.incomeIcon]}>
-                  <Text style={styles.transactionIconText}>
-                    {item.positive ? "↑" : "↓"}
-                  </Text>
-                </View>
-
-                <View>
-                  <Text style={styles.transactionTitle}>{item.title}</Text>
-                  <Text style={styles.transactionType}>{item.type}</Text>
-                </View>
-              </View>
-
-              <Text style={[styles.transactionAmount, item.positive && styles.incomeAmount]}>
-                {item.amount}
+          {transactions.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyTitle}>Aucune transaction</Text>
+              <Text style={styles.emptyText}>
+                Ajoute un revenu ou une dépense pour commencer.
               </Text>
             </View>
-          ))}
+          ) : (
+            transactions.map((item, index) => {
+              const isIncome = item.type === "income";
+
+              return (
+                <View
+                  key={item.$id}
+                  style={[
+                    styles.transactionRow,
+                    index !== transactions.length - 1 && styles.transactionBorder,
+                  ]}
+                >
+                  <View style={styles.transactionLeft}>
+                    <View style={[styles.transactionIcon, isIncome && styles.incomeIcon]}>
+                      <Text style={styles.transactionIconText}>{isIncome ? "↑" : "↓"}</Text>
+                    </View>
+
+                    <View style={styles.transactionInfo}>
+                      <Text style={styles.transactionTitle} numberOfLines={1}>
+                        {item.title}
+                      </Text>
+                      <Text style={styles.transactionType}>
+                        {item.category || (isIncome ? "Revenu" : "Dépense")}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <Text style={[styles.transactionAmount, isIncome && styles.incomeAmount]}>
+                    {isIncome ? "+" : "-"}
+                    {formatMoney(Number(item.amount))}
+                  </Text>
+                </View>
+              );
+            })
+          )}
         </View>
       </ScrollView>
     </LinearGradient>
@@ -104,6 +215,11 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+  },
+  loadingScreen: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   container: {
     paddingTop: 70,
@@ -259,11 +375,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.1)",
   },
+  emptyState: {
+    paddingVertical: 28,
+    alignItems: "center",
+  },
+  emptyTitle: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  emptyText: {
+    color: "#94A3B8",
+    fontSize: 14,
+    marginTop: 6,
+    textAlign: "center",
+  },
   transactionRow: {
     paddingVertical: 18,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 12,
   },
   transactionBorder: {
     borderBottomWidth: 1,
@@ -273,6 +405,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+    flex: 1,
+  },
+  transactionInfo: {
+    flex: 1,
   },
   transactionIcon: {
     width: 42,

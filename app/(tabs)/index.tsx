@@ -1,6 +1,6 @@
 // app/(tabs)/index.tsx
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect } from "expo-router";
 import {
@@ -16,6 +16,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  PanResponder,
 } from "react-native";
 
 import SpendingChart from "@/components/SpendingChart";
@@ -106,6 +107,23 @@ export default function HomeScreen() {
     setVisibleMonth(new Date(today.getFullYear(), today.getMonth(), 1));
     setSelectedDateKey(getDateKey(today));
   };
+
+  const calendarSwipeResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return Math.abs(gestureState.dx) > 28 && Math.abs(gestureState.dy) < 18;
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dx < -55) {
+          changeMonth(1);
+        }
+  
+        if (gestureState.dx > 55) {
+          changeMonth(-1);
+        }
+      },
+    })
+  ).current;
 
   const visibleMonthTransactions = useMemo(() => {
     const year = visibleMonth.getFullYear();
@@ -413,12 +431,13 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        <View style={styles.calendarCard}>
+        <View style={styles.calendarCard} {...calendarSwipeResponder.panHandlers}>
           <View style={styles.calendarHeader}>
             <View style={styles.calendarTitleBlock}>
               <Text style={styles.sectionTitle}>Calendrier</Text>
-              <Text style={styles.sectionSubtitle}>
-                Sélectionne un jour pour voir les mouvements.
+              <Text style={styles.calendarMonthHint}>
+                Glisse ← → pour changer de mois · {visibleMonthTransactions.length} mouvement
+                {visibleMonthTransactions.length > 1 ? "s" : ""}
               </Text>
             </View>
 

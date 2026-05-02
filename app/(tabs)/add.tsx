@@ -46,10 +46,10 @@ export default function AddTransactionScreen() {
 
       await createTransaction({
         userId: user.$id,
-        title,
-        type: type || "expense",
-        amount: parsedAmount,
-        transactionDate: new Date(transactionDate).toISOString(),
+        title: title.trim(),
+        amount: numericAmount,
+        type: selectedType,
+        transactionDate: new Date().toISOString(),
       });
 
       Alert.alert("Succès", "Transaction ajoutée");

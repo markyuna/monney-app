@@ -1,7 +1,9 @@
+// app/index.tsx
+
 import { useEffect, useState } from "react";
-import { ActivityIndicator, View } from "react-native";
 import { Redirect } from "expo-router";
 
+import AnimatedLogoLoader from "@/components/AnimatedLogoLoader";
 import { getCurrentUser } from "@/services/auth";
 
 export default function Index() {
@@ -10,20 +12,24 @@ export default function Index() {
 
   useEffect(() => {
     async function checkUser() {
+      const startedAt = Date.now();
+
       const currentUser = await getCurrentUser();
-      setUser(currentUser);
-      setLoading(false);
+
+      const elapsed = Date.now() - startedAt;
+      const remainingTime = Math.max(0, 5200 - elapsed);
+
+      setTimeout(() => {
+        setUser(currentUser);
+        setLoading(false);
+      }, remainingTime);
     }
 
     checkUser();
   }, []);
 
   if (loading) {
-    return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
+    return <AnimatedLogoLoader />;
   }
 
   if (user) {

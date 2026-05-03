@@ -75,9 +75,9 @@ export default function TabLayout() {
       />
 
       <Tabs.Screen
-        name="reglages"
+        name="settings"
         options={{
-          title: "Réglages",
+          title: "Settings",
           tabBarIcon: ({ color, focused }) => (
             <IconSymbol
               size={focused ? 29 : 26}

@@ -1,13 +1,15 @@
 // app/(tabs)/index.tsx
 
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect } from "expo-router";
+import { useSettings } from "@/context/settings-context";
 import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Platform,
   RefreshControl,
   ScrollView,
@@ -16,7 +18,6 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  PanResponder,
 } from "react-native";
 
 import SpendingChart from "@/components/SpendingChart";
@@ -38,6 +39,21 @@ type DailySummary = {
   balance: number;
 };
 
+const WEEK_DAYS = ["L", "M", "M", "J", "V", "S", "D"];
+
+const COLORS = {
+  navy: "#020617",
+  navy2: "#06152B",
+  blue: "#0077FF",
+  cyan: "#5EE7FF",
+  card: "#FFFFFF",
+  text: "#0F172A",
+  muted: "#64748B",
+  bg: "#F4F8FF",
+  green: "#22C55E",
+  red: "#EF4444",
+};
+
 function getDateKey(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -53,12 +69,22 @@ function getMonthLabel(date: Date) {
   });
 }
 
+function createDateFromKey(dateKey: string) {
+  return new Date(`${dateKey}T12:00:00`);
+}
+
 export default function HomeScreen() {
+  const { currency } = useSettings();
+
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const [visibleMonth, setVisibleMonth] = useState(new Date());
+  const [visibleMonth, setVisibleMonth] = useState(() => {
+    const today = new Date();
+    return new Date(today.getFullYear(), today.getMonth(), 1);
+  });
+
   const [selectedDateKey, setSelectedDateKey] = useState(getDateKey(new Date()));
 
   const [modalVisible, setModalVisible] = useState(false);
@@ -67,29 +93,35 @@ export default function HomeScreen() {
   const [amount, setAmount] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const formatMoney = (value: number) =>
-    new Intl.NumberFormat("fr-FR", {
-      style: "currency",
-      currency: "EUR",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(value);
+  const formatMoney = useCallback(
+    (value: number) =>
+      new Intl.NumberFormat("fr-FR", {
+        style: "currency",
+        currency,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(value),
+    [currency]
+  );
 
-  const formatShortMoney = (value: number) =>
-    new Intl.NumberFormat("fr-FR", {
-      style: "currency",
-      currency: "EUR",
-      maximumFractionDigits: 0,
-    }).format(value);
+  const formatShortMoney = useCallback(
+    (value: number) =>
+      new Intl.NumberFormat("fr-FR", {
+        style: "currency",
+        currency,
+        maximumFractionDigits: 0,
+      }).format(value),
+    [currency]
+  );
 
   const selectedDate = useMemo(
-    () => new Date(`${selectedDateKey}T12:00:00.000Z`),
+    () => createDateFromKey(selectedDateKey),
     [selectedDateKey]
   );
 
   const monthLabel = useMemo(() => getMonthLabel(visibleMonth), [visibleMonth]);
 
-  const changeMonth = (direction: number) => {
+  const changeMonth = useCallback((direction: number) => {
     setVisibleMonth((current) => {
       const nextMonth = new Date(
         current.getFullYear(),
@@ -100,27 +132,21 @@ export default function HomeScreen() {
       setSelectedDateKey(getDateKey(nextMonth));
       return nextMonth;
     });
-  };
+  }, []);
 
-  const goToToday = () => {
+  const goToToday = useCallback(() => {
     const today = new Date();
     setVisibleMonth(new Date(today.getFullYear(), today.getMonth(), 1));
     setSelectedDateKey(getDateKey(today));
-  };
+  }, []);
 
   const calendarSwipeResponder = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gestureState) => {
-        return Math.abs(gestureState.dx) > 28 && Math.abs(gestureState.dy) < 18;
-      },
+      onMoveShouldSetPanResponder: (_, gestureState) =>
+        Math.abs(gestureState.dx) > 28 && Math.abs(gestureState.dy) < 18,
       onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dx < -55) {
-          changeMonth(1);
-        }
-  
-        if (gestureState.dx > 55) {
-          changeMonth(-1);
-        }
+        if (gestureState.dx < -55) changeMonth(1);
+        if (gestureState.dx > 55) changeMonth(-1);
       },
     })
   ).current;
@@ -150,8 +176,10 @@ export default function HomeScreen() {
 
     const balance = income - expense;
     const savingsRate = income > 0 ? Math.round((balance / income) * 100) : 0;
+    const spentRate =
+      income > 0 ? Math.min(Math.round((expense / income) * 100), 999) : 0;
 
-    return { income, expense, balance, savingsRate };
+    return { income, expense, balance, savingsRate, spentRate };
   }, [visibleMonthTransactions]);
 
   const calendarDays = useMemo<DailySummary[]>(() => {
@@ -206,23 +234,23 @@ export default function HomeScreen() {
 
   const insightText = useMemo(() => {
     if (visibleMonthTransactions.length === 0) {
-      return "Commence à ajouter tes mouvements pour débloquer tes insights.";
+      return "Ajoute tes premiers mouvements pour activer ton espace MAVRO.";
     }
 
     if (totals.balance > 0) {
-      return `Tu es positif ce mois-ci avec ${formatShortMoney(
+      return `Ton mois est positif avec ${formatShortMoney(
         totals.balance
       )} disponibles.`;
     }
 
     if (totals.balance < 0) {
-      return `Attention, tes dépenses dépassent tes revenus de ${formatShortMoney(
+      return `Tes dépenses dépassent tes revenus de ${formatShortMoney(
         Math.abs(totals.balance)
       )}.`;
     }
 
     return "Ton mois est parfaitement équilibré.";
-  }, [visibleMonthTransactions.length, totals.balance]);
+  }, [visibleMonthTransactions.length, totals.balance, formatShortMoney]);
 
   const loadTransactions = useCallback(async () => {
     try {
@@ -337,9 +365,9 @@ export default function HomeScreen() {
 
   if (loading) {
     return (
-      <LinearGradient colors={["#020617", "#111827"]} style={styles.loader}>
-        <ActivityIndicator size="large" color="#F59E0B" />
-        <Text style={styles.loaderText}>Chargement de ton espace...</Text>
+      <LinearGradient colors={[COLORS.navy, COLORS.navy2]} style={styles.loader}>
+        <ActivityIndicator size="large" color={COLORS.cyan} />
+        <Text style={styles.loaderText}>Chargement de ton espace MAVRO...</Text>
       </LinearGradient>
     );
   }
@@ -350,31 +378,42 @@ export default function HomeScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={COLORS.blue}
+          />
         }
       >
         <LinearGradient
-          colors={["#020617", "#111827", "#292524"]}
+          colors={["#020617", "#06152B", "#08214A"]}
           style={styles.hero}
         >
           <View style={styles.heroGlowOne} />
           <View style={styles.heroGlowTwo} />
+          <View style={styles.heroGlowThree} />
 
           <View style={styles.heroTop}>
             <View>
-              <Text style={styles.eyebrow}>MonneyApp</Text>
-              <Text style={styles.title}>Vue premium</Text>
+              <Text style={styles.eyebrow}>MAVRO</Text>
+              <Text style={styles.title}>Dashboard privé</Text>
             </View>
 
-            <View style={styles.premiumBadge}>
-              <Text style={styles.premiumBadgeText}>PRO</Text>
+            <View style={styles.brandMark}>
+              <Text style={styles.brandMarkText}>M</Text>
             </View>
           </View>
 
           <Text style={styles.monthResume}>{monthLabel}</Text>
 
           <View style={styles.balanceCard}>
-            <Text style={styles.balanceLabel}>Solde disponible ce mois</Text>
+            <View style={styles.balanceHeader}>
+              <Text style={styles.balanceLabel}>Solde disponible</Text>
+              <Text style={styles.balanceChip}>
+                {totals.balance >= 0 ? "Stable" : "À surveiller"}
+              </Text>
+            </View>
+
             <Text
               style={[
                 styles.balanceAmount,
@@ -408,7 +447,7 @@ export default function HomeScreen() {
 
         <View style={styles.insightsGrid}>
           <View style={styles.insightCard}>
-            <Text style={styles.insightLabel}>Taux d’épargne</Text>
+            <Text style={styles.insightLabel}>Épargne</Text>
             <Text
               style={[
                 styles.insightValue,
@@ -421,12 +460,22 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.insightCard}>
-            <Text style={styles.insightLabel}>Plus grosse dépense</Text>
+            <Text style={styles.insightLabel}>Dépensé</Text>
+            <Text style={styles.insightValue}>
+              {totals.income > 0 ? `${totals.spentRate}%` : "—"}
+            </Text>
+            <Text style={styles.insightHint}>Du revenu mensuel</Text>
+          </View>
+
+          <View style={styles.insightCard}>
+            <Text style={styles.insightLabel}>Top dépense</Text>
             <Text style={styles.insightValueSmall} numberOfLines={1}>
               {topExpense ? topExpense.title : "Aucune"}
             </Text>
             <Text style={styles.insightHint}>
-              {topExpense ? formatMoney(Number(topExpense.amount)) : "Ce mois-ci"}
+              {topExpense
+                ? formatMoney(Number(topExpense.amount))
+                : "Ce mois-ci"}
             </Text>
           </View>
         </View>
@@ -435,9 +484,8 @@ export default function HomeScreen() {
           <View style={styles.calendarHeader}>
             <View style={styles.calendarTitleBlock}>
               <Text style={styles.sectionTitle}>Calendrier</Text>
-              <Text style={styles.calendarMonthHint}>
-                Glisse ← → pour changer de mois · {visibleMonthTransactions.length} mouvement
-                {visibleMonthTransactions.length > 1 ? "s" : ""}
+              <Text style={styles.sectionSubtitle}>
+                Glisse pour naviguer entre les mois.
               </Text>
             </View>
 
@@ -476,6 +524,14 @@ export default function HomeScreen() {
             >
               <Text style={styles.todayButtonText}>Aujourd’hui</Text>
             </TouchableOpacity>
+          </View>
+
+          <View style={styles.weekRow}>
+            {WEEK_DAYS.map((day, index) => (
+              <Text key={`${day}-${index}`} style={styles.weekText}>
+                {day}
+              </Text>
+            ))}
           </View>
 
           <ScrollView
@@ -565,12 +621,10 @@ export default function HomeScreen() {
 
         <View style={styles.chartCard}>
           <View style={styles.cardHeader}>
-            <View>
-              <Text style={styles.sectionTitle}>Analyse du mois</Text>
-              <Text style={styles.sectionSubtitle}>
-                Visualise tes dépenses en un coup d’œil.
-              </Text>
-            </View>
+            <Text style={styles.sectionTitle}>Analyse du mois</Text>
+            <Text style={styles.sectionSubtitle}>
+              Visualise tes revenus et tes dépenses en un coup d’œil.
+            </Text>
           </View>
 
           <SpendingChart transactions={visibleMonthTransactions} />
@@ -598,8 +652,7 @@ export default function HomeScreen() {
             <Text style={styles.emptyEmoji}>✨</Text>
             <Text style={styles.emptyTitle}>Aucune transaction</Text>
             <Text style={styles.emptyText}>
-              Appuie sur le bouton + pour ajouter un revenu ou une dépense à ce
-              jour.
+              Appuie sur le bouton + pour ajouter un revenu ou une dépense.
             </Text>
           </View>
         ) : (
@@ -655,7 +708,7 @@ export default function HomeScreen() {
       </ScrollView>
 
       <TouchableOpacity style={styles.fab} activeOpacity={0.88} onPress={openModal}>
-        <LinearGradient colors={["#FDE68A", "#F59E0B"]} style={styles.fabGradient}>
+        <LinearGradient colors={[COLORS.cyan, COLORS.blue]} style={styles.fabGradient}>
           <Text style={styles.fabText}>+</Text>
         </LinearGradient>
       </TouchableOpacity>
@@ -741,7 +794,7 @@ export default function HomeScreen() {
                   disabled={saving}
                 >
                   {saving ? (
-                    <ActivityIndicator color="#111827" />
+                    <ActivityIndicator color="#FFFFFF" />
                   ) : (
                     <Text style={styles.saveButtonText}>Ajouter</Text>
                   )}
@@ -765,48 +818,57 @@ export default function HomeScreen() {
 const premiumShadow = Platform.select({
   ios: {
     shadowColor: "#0F172A",
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.09,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 12 },
   },
-  android: { elevation: 4 },
+  android: { elevation: 5 },
 });
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#F4F7FB" },
+  screen: { flex: 1, backgroundColor: COLORS.bg },
   loader: { flex: 1, alignItems: "center", justifyContent: "center" },
   loaderText: {
     color: "#CBD5E1",
     marginTop: 14,
-    fontWeight: "700",
+    fontWeight: "800",
   },
-  content: { paddingBottom: 125 },
+  content: { paddingBottom: 128 },
 
   hero: {
     paddingTop: 72,
     paddingHorizontal: 22,
-    paddingBottom: 28,
-    borderBottomLeftRadius: 38,
-    borderBottomRightRadius: 38,
+    paddingBottom: 30,
+    borderBottomLeftRadius: 42,
+    borderBottomRightRadius: 42,
     overflow: "hidden",
   },
   heroGlowOne: {
     position: "absolute",
-    top: -60,
-    right: -70,
-    width: 210,
-    height: 210,
-    borderRadius: 105,
-    backgroundColor: "rgba(245,158,11,0.28)",
+    top: -70,
+    right: -80,
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    backgroundColor: "rgba(0,119,255,0.35)",
   },
   heroGlowTwo: {
     position: "absolute",
-    bottom: -80,
-    left: -70,
-    width: 190,
-    height: 190,
-    borderRadius: 95,
-    backgroundColor: "rgba(250,204,21,0.14)",
+    bottom: -95,
+    left: -80,
+    width: 230,
+    height: 230,
+    borderRadius: 115,
+    backgroundColor: "rgba(94,231,255,0.14)",
+  },
+  heroGlowThree: {
+    position: "absolute",
+    top: 180,
+    right: 24,
+    width: 130,
+    height: 130,
+    borderRadius: 65,
+    backgroundColor: "rgba(255,255,255,0.07)",
   },
   heroTop: {
     flexDirection: "row",
@@ -814,31 +876,32 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   eyebrow: {
-    color: "#FDE68A",
+    color: COLORS.cyan,
     fontSize: 12,
     fontWeight: "900",
-    letterSpacing: 1.4,
-    textTransform: "uppercase",
+    letterSpacing: 3,
   },
   title: {
     color: "#FFFFFF",
-    fontSize: 34,
+    fontSize: 35,
     fontWeight: "900",
     marginTop: 8,
+    letterSpacing: -1.2,
   },
-  premiumBadge: {
-    backgroundColor: "rgba(255,255,255,0.12)",
+  brandMark: {
+    width: 48,
+    height: 48,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.10)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.18)",
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 999,
+    borderColor: "rgba(94,231,255,0.28)",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  premiumBadgeText: {
-    color: "#FDE68A",
-    fontSize: 12,
+  brandMarkText: {
+    color: COLORS.cyan,
+    fontSize: 24,
     fontWeight: "900",
-    letterSpacing: 1,
   },
   monthResume: {
     color: "#CBD5E1",
@@ -851,98 +914,114 @@ const styles = StyleSheet.create({
     marginTop: 26,
     backgroundColor: "rgba(255,255,255,0.10)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    borderRadius: 30,
+    borderColor: "rgba(94,231,255,0.20)",
+    borderRadius: 32,
     padding: 20,
   },
-  balanceLabel: { color: "#CBD5E1", fontSize: 14, fontWeight: "700" },
+  balanceHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  balanceLabel: { color: "#CBD5E1", fontSize: 14, fontWeight: "800" },
+  balanceChip: {
+    color: COLORS.cyan,
+    backgroundColor: "rgba(0,119,255,0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(94,231,255,0.26)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    fontSize: 11,
+    fontWeight: "900",
+  },
   balanceAmount: {
     color: "#FFFFFF",
-    fontSize: 42,
+    fontSize: 44,
     fontWeight: "900",
-    marginTop: 8,
-    letterSpacing: -1.2,
+    marginTop: 10,
+    letterSpacing: -1.5,
   },
   negativeBalance: { color: "#FCA5A5" },
   balanceFooter: {
     marginTop: 14,
-    backgroundColor: "rgba(15,23,42,0.35)",
+    backgroundColor: "rgba(2,6,23,0.42)",
     borderRadius: 18,
     padding: 12,
   },
   balanceFooterText: {
     color: "#E5E7EB",
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "800",
     lineHeight: 18,
   },
 
   statsRow: { flexDirection: "row", gap: 12, marginTop: 14 },
   statCard: {
     flex: 1,
-    backgroundColor: "rgba(255,255,255,0.10)",
+    backgroundColor: "rgba(255,255,255,0.09)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    borderRadius: 24,
+    borderColor: "rgba(255,255,255,0.13)",
+    borderRadius: 26,
     padding: 16,
   },
   statIcon: {
     color: "#FFFFFF",
-    fontSize: 18,
+    fontSize: 19,
     fontWeight: "900",
     marginBottom: 8,
   },
   statLabel: { color: "#CBD5E1", fontSize: 12, marginBottom: 8 },
-  incomeText: { color: "#22C55E", fontWeight: "900" },
-  expenseText: { color: "#EF4444", fontWeight: "900" },
+  incomeText: { color: COLORS.green, fontWeight: "900" },
+  expenseText: { color: COLORS.red, fontWeight: "900" },
 
   insightsGrid: {
     flexDirection: "row",
-    gap: 12,
-    paddingHorizontal: 20,
+    gap: 10,
+    paddingHorizontal: 16,
     marginTop: 20,
   },
   insightCard: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 26,
-    padding: 16,
+    backgroundColor: COLORS.card,
+    borderRadius: 24,
+    padding: 14,
     borderWidth: 1,
-    borderColor: "#EEF2F7",
+    borderColor: "#E8F1FF",
     ...premiumShadow,
   },
   insightLabel: {
-    color: "#64748B",
-    fontSize: 12,
-    fontWeight: "800",
+    color: COLORS.muted,
+    fontSize: 11,
+    fontWeight: "900",
   },
   insightValue: {
-    color: "#0F172A",
-    fontSize: 28,
+    color: COLORS.text,
+    fontSize: 25,
     fontWeight: "900",
     marginTop: 8,
   },
   insightValueSmall: {
-    color: "#0F172A",
-    fontSize: 18,
+    color: COLORS.text,
+    fontSize: 15,
     fontWeight: "900",
     marginTop: 10,
   },
   insightHint: {
     color: "#94A3B8",
-    fontSize: 12,
+    fontSize: 11,
     marginTop: 6,
-    fontWeight: "700",
+    fontWeight: "800",
   },
 
   calendarCard: {
     margin: 20,
     marginBottom: 0,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: COLORS.card,
     borderRadius: 34,
     padding: 20,
     borderWidth: 1,
-    borderColor: "#EEF2F7",
+    borderColor: "#E8F1FF",
     ...premiumShadow,
   },
   calendarHeader: {
@@ -951,35 +1030,28 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 14,
   },
-  calendarTitleBlock: {
-    flex: 1,
-  },
-  cardHeader: {
-    marginBottom: 14,
-  },
-  sectionTitle: { fontSize: 24, fontWeight: "900", color: "#0F172A" },
+  calendarTitleBlock: { flex: 1 },
+  cardHeader: { marginBottom: 14 },
+  sectionTitle: { fontSize: 24, fontWeight: "900", color: COLORS.text },
   sectionSubtitle: {
-    color: "#64748B",
+    color: COLORS.muted,
     marginTop: 4,
     fontSize: 14,
     lineHeight: 20,
   },
-  monthControls: {
-    flexDirection: "row",
-    gap: 8,
-  },
+  monthControls: { flexDirection: "row", gap: 8 },
   monthButton: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#F1F5F9",
+    backgroundColor: "#F1F7FF",
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: "#DCEBFF",
   },
   monthButtonText: {
-    color: "#0F172A",
+    color: COLORS.blue,
     fontSize: 34,
     fontWeight: "900",
     marginTop: -5,
@@ -992,7 +1064,7 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   calendarMonth: {
-    color: "#111827",
+    color: COLORS.text,
     fontSize: 22,
     fontWeight: "900",
     textTransform: "capitalize",
@@ -1004,7 +1076,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   todayButton: {
-    backgroundColor: "#111827",
+    backgroundColor: COLORS.navy,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 999,
@@ -1014,26 +1086,39 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "900",
   },
-  calendarScroll: { gap: 12, paddingTop: 18, paddingRight: 4 },
+  weekRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 18,
+    paddingHorizontal: 4,
+  },
+  weekText: {
+    width: 28,
+    textAlign: "center",
+    color: "#94A3B8",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  calendarScroll: { gap: 12, paddingTop: 16, paddingRight: 4 },
   dayCard: {
     width: 90,
     minHeight: 124,
     borderRadius: 28,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#F7FAFF",
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: "#DCEBFF",
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 12,
     paddingHorizontal: 6,
   },
   dayCardSelected: {
-    backgroundColor: "#0F172A",
-    borderColor: "#0F172A",
+    backgroundColor: COLORS.navy,
+    borderColor: COLORS.blue,
   },
   dayCardToday: {
-    borderColor: "#F59E0B",
-    backgroundColor: "#FFFBEB",
+    borderColor: COLORS.blue,
+    backgroundColor: "#EEF7FF",
   },
   dayLabel: {
     color: "#94A3B8",
@@ -1044,7 +1129,7 @@ const styles = StyleSheet.create({
   },
   dayLabelSelected: { color: "#CBD5E1" },
   dayNumber: {
-    color: "#111827",
+    color: COLORS.text,
     fontSize: 28,
     fontWeight: "900",
     marginTop: 3,
@@ -1052,26 +1137,24 @@ const styles = StyleSheet.create({
   dayNumberSelected: { color: "#FFFFFF" },
   todayMiniLabel: {
     marginTop: 2,
-    color: "#D97706",
+    color: COLORS.blue,
     fontSize: 9,
     fontWeight: "900",
     textTransform: "uppercase",
   },
-  todayMiniLabelSelected: {
-    color: "#FDE68A",
-  },
+  todayMiniLabelSelected: { color: COLORS.cyan },
   dayDots: { flexDirection: "row", gap: 5, marginTop: 9 },
   incomeDot: {
     width: 7,
     height: 7,
     borderRadius: 999,
-    backgroundColor: "#22C55E",
+    backgroundColor: COLORS.green,
   },
   expenseDot: {
     width: 7,
     height: 7,
     borderRadius: 999,
-    backgroundColor: "#EF4444",
+    backgroundColor: COLORS.red,
   },
   emptyDay: { marginTop: 9, color: "#94A3B8", fontWeight: "900" },
   emptyDaySelected: { color: "#CBD5E1" },
@@ -1083,11 +1166,11 @@ const styles = StyleSheet.create({
 
   chartCard: {
     margin: 20,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: COLORS.card,
     borderRadius: 30,
     padding: 18,
     borderWidth: 1,
-    borderColor: "#EEF2F7",
+    borderColor: "#E8F1FF",
     ...premiumShadow,
   },
 
@@ -1100,44 +1183,41 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   selectedDateText: {
-    color: "#64748B",
+    color: COLORS.muted,
     marginTop: 4,
     textTransform: "capitalize",
     fontWeight: "700",
   },
   transactionsCount: {
-    backgroundColor: "#E2E8F0",
+    backgroundColor: "#DCEBFF",
     paddingHorizontal: 13,
     paddingVertical: 6,
     borderRadius: 999,
-    color: "#334155",
+    color: COLORS.blue,
     fontWeight: "900",
   },
   emptyCard: {
     marginHorizontal: 20,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: COLORS.card,
     borderRadius: 28,
     padding: 24,
     alignItems: "flex-start",
     borderWidth: 1,
-    borderColor: "#EEF2F7",
+    borderColor: "#E8F1FF",
   },
-  emptyEmoji: {
-    fontSize: 28,
-    marginBottom: 8,
-  },
-  emptyTitle: { fontSize: 18, fontWeight: "900", color: "#111827" },
-  emptyText: { color: "#64748B", marginTop: 8, lineHeight: 20 },
+  emptyEmoji: { fontSize: 28, marginBottom: 8 },
+  emptyTitle: { fontSize: 18, fontWeight: "900", color: COLORS.text },
+  emptyText: { color: COLORS.muted, marginTop: 8, lineHeight: 20 },
   transactionCard: {
     marginHorizontal: 20,
     marginBottom: 12,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: COLORS.card,
     borderRadius: 24,
     padding: 15,
     flexDirection: "row",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#EEF2F7",
+    borderColor: "#E8F1FF",
     ...Platform.select({
       ios: {
         shadowColor: "#0F172A",
@@ -1156,28 +1236,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 12,
   },
-  transactionIconIncome: {
-    backgroundColor: "#DCFCE7",
-  },
-  transactionIconExpense: {
-    backgroundColor: "#FEE2E2",
-  },
+  transactionIconIncome: { backgroundColor: "#DCFCE7" },
+  transactionIconExpense: { backgroundColor: "#FEE2E2" },
   transactionIconText: {
-    color: "#111827",
+    color: COLORS.text,
     fontSize: 22,
     fontWeight: "900",
     marginTop: -2,
   },
-  transactionInfo: {
-    flex: 1,
-    paddingRight: 12,
-  },
-  transactionRight: {
-    alignItems: "flex-end",
-    gap: 8,
-  },
-  transactionTitle: { fontSize: 16, fontWeight: "900", color: "#111827" },
-  transactionType: { color: "#64748B", marginTop: 4, fontWeight: "700" },
+  transactionInfo: { flex: 1, paddingRight: 12 },
+  transactionRight: { alignItems: "flex-end", gap: 8 },
+  transactionTitle: { fontSize: 16, fontWeight: "900", color: COLORS.text },
+  transactionType: { color: COLORS.muted, marginTop: 4, fontWeight: "700" },
   transactionAmount: { fontSize: 15 },
   deleteButton: {
     backgroundColor: "#FEF2F2",
@@ -1201,9 +1271,9 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     ...Platform.select({
       ios: {
-        shadowColor: "#F59E0B",
-        shadowOpacity: 0.45,
-        shadowRadius: 18,
+        shadowColor: COLORS.blue,
+        shadowOpacity: 0.55,
+        shadowRadius: 20,
         shadowOffset: { width: 0, height: 10 },
       },
       android: { elevation: 8 },
@@ -1217,14 +1287,14 @@ const styles = StyleSheet.create({
   fabText: {
     fontSize: 38,
     fontWeight: "800",
-    color: "#111827",
+    color: "#FFFFFF",
     marginTop: -4,
   },
 
   modalOverlay: { flex: 1, justifyContent: "flex-end" },
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(2, 6, 23, 0.62)",
+    backgroundColor: "rgba(2, 6, 23, 0.68)",
   },
   modalCard: {
     backgroundColor: "#FFFFFF",
@@ -1241,8 +1311,8 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginBottom: 18,
   },
-  modalTitle: { fontSize: 24, fontWeight: "900", color: "#0F172A" },
-  modalSubtitle: { color: "#64748B", marginTop: 6, marginBottom: 20 },
+  modalTitle: { fontSize: 24, fontWeight: "900", color: COLORS.text },
+  modalSubtitle: { color: COLORS.muted, marginTop: 6, marginBottom: 20 },
   choiceButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -1262,10 +1332,10 @@ const styles = StyleSheet.create({
     lineHeight: 44,
     fontSize: 27,
     fontWeight: "900",
-    color: "#111827",
+    color: COLORS.text,
   },
-  choiceTitle: { fontSize: 18, fontWeight: "900", color: "#111827" },
-  choiceText: { color: "#64748B", marginTop: 3 },
+  choiceTitle: { fontSize: 18, fontWeight: "900", color: COLORS.text },
+  choiceText: { color: COLORS.muted, marginTop: 3 },
   input: {
     backgroundColor: "#F8FAFC",
     borderWidth: 1,
@@ -1274,20 +1344,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 15,
     marginTop: 14,
-    color: "#111827",
+    color: COLORS.text,
     fontSize: 16,
   },
   saveButton: {
-    backgroundColor: "#F59E0B",
+    backgroundColor: COLORS.blue,
     borderRadius: 20,
     paddingVertical: 16,
     alignItems: "center",
     marginTop: 18,
   },
-  saveButtonDisabled: {
-    opacity: 0.6,
-  },
-  saveButtonText: { color: "#111827", fontSize: 16, fontWeight: "900" },
+  saveButtonDisabled: { opacity: 0.6 },
+  saveButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "900" },
   backButton: { alignItems: "center", paddingVertical: 14 },
-  backButtonText: { color: "#64748B", fontWeight: "800" },
+  backButtonText: { color: COLORS.muted, fontWeight: "800" },
 });
